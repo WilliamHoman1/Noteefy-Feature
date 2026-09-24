@@ -1,0 +1,157 @@
+.shell {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+  text-align: left;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.brand {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--fairway);
+  line-height: 1;
+}
+
+.health {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.shell h1 {
+  margin: 0 0 0.5rem;
+  font-family: var(--display);
+  font-size: 1.65rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.shell h2 {
+  margin: 0 0 0.75rem;
+  font-family: var(--display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lede {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.banner {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.banner.bad {
+  background: #fce7ef;
+  color: var(--clay);
+}
+
+.banner.good {
+  background: #dff3e7;
+  color: var(--fairway);
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.field span {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field select,
+.field input {
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.panel,
+.book {
+  margin-top: 1.75rem;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.row,
+.plain-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.7rem 0.8rem;
+}
+
+button.row {
+  cursor: pointer;
+}
+
+button.row.selected {
+  border-color: var(--fairway);
+  background: #e4f3ea;
+}
+
+.plain-row {
+  font-size: 0.95rem;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.cta {
+  margin-top: 0.25rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--fairway);
+  border: none;
+  border-radius: 4px;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+}
+
+.cta:hover {
+  filter: brightness(0.95);
+}
