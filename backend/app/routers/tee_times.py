@@ -1,3 +1,5 @@
+from datetime import date, datetime, time, timedelta, timezone
+
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.db import get_db
@@ -8,13 +10,26 @@ router = APIRouter(prefix="/api/tee-times", tags=["tee-times"])
 
 
 @router.get("", response_model=list[TeeTime])
-async def list_tee_times(course_id: str | None = Query(default=None)) -> list[dict]:
+async def list_tee_times(
+    course_id: str | None = Query(default=None),
+    date_on: date | None = Query(default=None, alias="date"),
+    players: int | None = Query(default=None, ge=1, le=4),
+) -> list[dict]:
     query: dict = {}
+
     if course_id is not None:
         try:
             query["course_id"] = to_object_id(course_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if date_on is not None:
+        start = datetime.combine(date_on, time.min, tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+        query["start_time"] = {"$gte": start, "$lt": end}
+
+    if players is not None:
+        query["slots_available"] = {"$gte": players}
 
     docs = await get_db().tee_times.find(query).sort("start_time", 1).to_list(200)
     return serialize_docs(docs)

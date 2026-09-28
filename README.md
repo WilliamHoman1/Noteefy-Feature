@@ -62,7 +62,7 @@ Mongo collections and APIs (seeded on first API start if empty):
 | Resource | Endpoints |
 |---|---|
 | Courses | `GET/POST /api/courses`, `GET /api/courses/{id}` |
-| Tee times | `GET/POST /api/tee-times`, `GET /api/tee-times/{id}` (`?course_id=`) |
-| Bookings | `GET/POST /api/bookings` |
+| Tee times | `GET/POST /api/tee-times`, `GET /api/tee-times/{id}` — search with `?course_id=&date=YYYY-MM-DD&players=` |
+| Bookings | `GET/POST /api/bookings`, `DELETE /api/bookings/{id}` (cancel; restores slots) |
 
 Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)

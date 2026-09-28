@@ -39,3 +39,4 @@ class Booking(BookingCreate):
 
     id: str
     created_at: datetime
+    status: str = "confirmed"
