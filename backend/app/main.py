@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import close_db, connect_db
-from app.routers import bookings, courses, health, tee_times
+from app.routers import bookings, courses, health, tee_times, users
 from app.seed import seed_if_empty
 
 
@@ -28,6 +28,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health.router)
+    app.include_router(users.router)
     app.include_router(courses.router)
     app.include_router(tee_times.router)
     app.include_router(bookings.router)

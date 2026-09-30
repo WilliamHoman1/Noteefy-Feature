@@ -1,374 +1,299 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { ApiError, api } from './api'
+import { useAuth } from './auth'
+import { formatHeadingDate, todayInZone } from './format'
+import { AuthModal } from './components/AuthModal'
+import { BookingModal } from './components/BookingModal'
+import { CourseCard } from './components/CourseCard'
+import { DatePager } from './components/DatePager'
+import { FilterAccordion } from './components/FilterAccordion'
+import { ListIcon } from './components/Icons'
+import { MyBookings } from './components/MyBookings'
+import { NavBar } from './components/NavBar'
+import { TeeTimeCard } from './components/TeeTimeCard'
+import type {
+  Booking,
+  CartPolicy,
+  Course,
+  FilterGroup,
+  FilterSelection,
+  TeeTime,
+} from './types'
 
-type HealthResponse = {
-  status: string
-  mongo: string
-}
-
-type Course = {
-  id: string
-  name: string
-  location: string
-  holes: number
-}
-
-type TeeTime = {
-  id: string
-  course_id: string
-  start_time: string
-  slots_available: number
-  price_cents: number
-}
-
-type Booking = {
-  id: string
-  tee_time_id: string
-  golfer_name: string
-  players: number
-  created_at: string
-  status: string
-}
-
-/** Matches backend seed/search, which uses UTC calendar dates. */
-function tomorrowUtcDate(): string {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() + 1)
-  return d.toISOString().slice(0, 10)
-}
+type View = 'tee-times' | 'bookings'
 
 function App() {
-  const [health, setHealth] = useState<HealthResponse | null>(null)
+  const { user, ready, logout } = useAuth()
+
   const [courses, setCourses] = useState<Course[]>([])
-  const [selectedCourseId, setSelectedCourseId] = useState<string>('')
-  const [dateOn, setDateOn] = useState(tomorrowUtcDate)
-  const [players, setPlayers] = useState(1)
+  const [courseId, setCourseId] = useState('')
+  const [filterGroups, setFilterGroups] = useState<FilterGroup[]>([])
+  const [selection, setSelection] = useState<FilterSelection>({})
+  const [pickedDate, setPickedDate] = useState<string | null>(null)
   const [teeTimes, setTeeTimes] = useState<TeeTime[]>([])
-  const [bookings, setBookings] = useState<Booking[]>([])
-  const [golferName, setGolferName] = useState('')
-  const [selectedTeeTimeId, setSelectedTeeTimeId] = useState('')
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
 
-  async function loadCourses() {
-    const res = await fetch('/api/courses')
-    if (!res.ok) throw new Error(`Courses failed (${res.status})`)
-    const data = (await res.json()) as Course[]
-    setCourses(data)
-    setSelectedCourseId((current) => current || data[0]?.id || '')
-  }
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [loadingBookings, setLoadingBookings] = useState(false)
 
-  async function searchTeeTimes(courseId: string, date: string, partySize: number) {
-    if (!courseId || !date) {
-      setTeeTimes([])
-      return
-    }
-    setSearching(true)
-    try {
-      const params = new URLSearchParams({
-        course_id: courseId,
-        date,
-        players: String(partySize),
-      })
-      const res = await fetch(`/api/tee-times?${params}`)
-      if (!res.ok) throw new Error(`Tee times failed (${res.status})`)
-      const data = (await res.json()) as TeeTime[]
-      setTeeTimes(data)
-      setSelectedTeeTimeId((current) =>
-        data.some((tee) => tee.id === current) ? current : (data[0]?.id ?? ''),
-      )
-    } finally {
-      setSearching(false)
-    }
-  }
+  const [view, setView] = useState<View>('tee-times')
+  const [authPrompt, setAuthPrompt] = useState<string | null>(null)
+  const [authOpen, setAuthOpen] = useState(false)
+  const [pendingTee, setPendingTee] = useState<TeeTime | null>(null)
+  const [bookingTee, setBookingTee] = useState<TeeTime | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
 
-  async function loadBookings() {
-    const res = await fetch('/api/bookings')
-    if (!res.ok) throw new Error(`Bookings failed (${res.status})`)
-    setBookings((await res.json()) as Booking[])
-  }
+  const course = useMemo(
+    () => courses.find((c) => c.id === courseId) ?? null,
+    [courses, courseId],
+  )
+  // The course's timezone decides what "today" means, so it follows the course document.
+  const today = useMemo(() => todayInZone(course?.timezone), [course?.timezone])
+  const date = pickedDate ?? today
 
   useEffect(() => {
     let cancelled = false
 
-    async function boot() {
-      try {
-        const healthRes = await fetch('/api/health')
-        if (!healthRes.ok) throw new Error('API unreachable')
-        const healthData = (await healthRes.json()) as HealthResponse
+    api
+      .courses()
+      .then((found) => {
         if (cancelled) return
-        setHealth(healthData)
-        await loadCourses()
-        await loadBookings()
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load')
-        }
-      }
-    }
+        setCourses(found)
+        setCourseId((current) => current || found[0]?.id || '')
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(messageFrom(err, 'Could not load courses'))
+      })
 
-    void boot()
     return () => {
       cancelled = true
     }
   }, [])
 
+  // The sidebar options are whatever the database reports for this course.
   useEffect(() => {
-    if (!selectedCourseId) return
-    void searchTeeTimes(selectedCourseId, dateOn, players).catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Failed to search tee times')
-    })
-  }, [selectedCourseId, dateOn, players])
+    if (!courseId) return
+    let cancelled = false
 
-  async function onBook(event: FormEvent) {
-    event.preventDefault()
-    setMessage(null)
-    setError(null)
+    api
+      .courseFilters(courseId)
+      .then((found) => {
+        if (!cancelled) setFilterGroups(found.groups)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(messageFrom(err, 'Could not load filters'))
+      })
 
-    if (!selectedTeeTimeId || !golferName.trim()) {
-      setError('Pick a tee time and enter a golfer name.')
+    return () => {
+      cancelled = true
+    }
+  }, [courseId])
+
+  const loadTeeTimes = useCallback(async () => {
+    if (!courseId || !date) return
+    setSearching(true)
+    try {
+      const found = await api.teeTimes({
+        courseId,
+        date,
+        players: numberOrUndefined(selection.group_size),
+        holes: numberOrUndefined(selection.holes),
+        cartPolicy: selection.cart_policy as CartPolicy | undefined,
+        teeTimeWindow: selection.tee_time,
+      })
+      setTeeTimes(found)
+      setError(null)
+    } catch (err) {
+      setError(messageFrom(err, 'Could not load tee times'))
+    } finally {
+      setSearching(false)
+    }
+  }, [courseId, date, selection])
+
+  useEffect(() => {
+    void loadTeeTimes()
+  }, [loadTeeTimes])
+
+  const loadBookings = useCallback(async () => {
+    if (!user) {
+      setBookings([])
       return
     }
-
-    const res = await fetch('/api/bookings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tee_time_id: selectedTeeTimeId,
-        golfer_name: golferName.trim(),
-        players,
-      }),
-    })
-
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { detail?: string } | null
-      setError(body?.detail ?? `Booking failed (${res.status})`)
-      return
+    setLoadingBookings(true)
+    try {
+      setBookings(await api.userBookings(user.id))
+    } catch (err) {
+      setError(messageFrom(err, 'Could not load your bookings'))
+    } finally {
+      setLoadingBookings(false)
     }
+  }, [user])
 
-    setMessage(`Booked for ${golferName.trim()}.`)
-    setGolferName('')
-    await searchTeeTimes(selectedCourseId, dateOn, players)
-    await loadBookings()
+  useEffect(() => {
+    void loadBookings()
+  }, [loadBookings])
+
+  function onFilterChange(groupKey: string, value: string | undefined) {
+    // Selecting a course in the sidebar switches which course the grid shows.
+    if (groupKey === 'course') {
+      const next = courses.find((c) => c.name === value)
+      if (next) setCourseId(next.id)
+    }
+    setSelection((current) => ({ ...current, [groupKey]: value }))
   }
 
-  async function onCancel(bookingId: string) {
+  function onBookClick(tee: TeeTime) {
     setMessage(null)
-    setError(null)
-
-    const res = await fetch(`/api/bookings/${bookingId}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { detail?: string } | null
-      setError(body?.detail ?? `Cancel failed (${res.status})`)
+    if (!user) {
+      setPendingTee(tee)
+      setAuthPrompt('Create an account to hold this tee time.')
+      setAuthOpen(true)
       return
     }
-
-    setMessage('Booking cancelled. Slots returned to the tee time.')
-    await searchTeeTimes(selectedCourseId, dateOn, players)
-    await loadBookings()
+    setBookingTee(tee)
   }
 
-  const healthClass =
-    health?.status === 'ok' && health.mongo === 'ok'
-      ? 'ok'
-      : health
-        ? 'warn'
-        : 'bad'
+  async function onConfirmBooking(input: {
+    players: number
+    holes: number
+    cart: boolean
+  }) {
+    if (!user || !bookingTee) return
 
-  const selectedCourse = courses.find((c) => c.id === selectedCourseId)
-  const selectedTee = teeTimes.find((t) => t.id === selectedTeeTimeId)
+    const booking = await api.createBooking({
+      userId: user.id,
+      teeTimeId: bookingTee.id,
+      ...input,
+    })
+
+    setBookingTee(null)
+    setMessage(`Booked ${booking.course_name} · booking ID ${booking.id}`)
+    await Promise.all([loadTeeTimes(), loadBookings()])
+  }
+
+  async function onCancelBooking(bookingId: string) {
+    setMessage(null)
+    try {
+      await api.cancelBooking(bookingId)
+      setMessage('Booking cancelled. The slots are back in the tee sheet.')
+      await Promise.all([loadTeeTimes(), loadBookings()])
+    } catch (err) {
+      setError(messageFrom(err, 'Could not cancel that booking'))
+    }
+  }
 
   return (
     <div className="page">
-      <header className="nav">
-        <a className="nav-brand" href="/" aria-label="Noteefy home">
-          <img className="nav-logo" src="/noteefy-logo.webp" alt="Noteefy" />
-        </a>
-        <div className="nav-meta">
-          <span className={`pill ${healthClass}`}>
-            <span className="dot" aria-hidden="true" />
-            System {health?.status ?? '…'}
-          </span>
-        </div>
-      </header>
+      <NavBar
+        user={user}
+        activeView={view}
+        onNavigate={setView}
+        onSignIn={() => {
+          setAuthPrompt(null)
+          setAuthOpen(true)
+        }}
+        onSignOut={() => {
+          logout()
+          setView('tee-times')
+        }}
+      />
 
-      <section className="hero">
-        <div className="hero-inner">
-          <p className="hero-kicker">Golfer booking lab</p>
-          <h1>Find and book the tee time you want.</h1>
-          <p className="hero-copy">
-            Search by course, date, and party size — then reserve in seconds.
-            Built for a Noteefy-style booking experience.
-          </p>
-        </div>
-      </section>
+      <main className="shell">
+        <aside className="sidebar">
+          {course && <CourseCard course={course} />}
+          <DatePager date={date} today={today} onChange={setPickedDate} />
+          <FilterAccordion
+            groups={filterGroups}
+            selection={selection}
+            onChange={onFilterChange}
+          />
+        </aside>
 
-      <main className="content">
-        {error && <p className="banner bad">{error}</p>}
-        {message && <p className="banner good">{message}</p>}
-
-        <div className="layout">
-          <section className="card">
-            <h2>Search tee times</h2>
-            <div className="search">
-              <label className="field">
-                <span>Course</span>
-                <select
-                  value={selectedCourseId}
-                  onChange={(e) => setSelectedCourseId(e.target.value)}
-                >
-                  {courses.map((course) => (
-                    <option key={course.id} value={course.id}>
-                      {course.name} — {course.location}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field">
-                <span>Date</span>
-                <input
-                  type="date"
-                  value={dateOn}
-                  onChange={(e) => setDateOn(e.target.value)}
-                />
-              </label>
-
-              <label className="field">
-                <span>Players</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={4}
-                  value={players}
-                  onChange={(e) => setPlayers(Number(e.target.value))}
-                />
-              </label>
-            </div>
-
-            <div className="section-head">
-              <h2>Available</h2>
-              <span className="count">
-                {searching
-                  ? 'Searching…'
-                  : `${teeTimes.length} time${teeTimes.length === 1 ? '' : 's'}`}
-              </span>
-            </div>
-
-            {teeTimes.length === 0 ? (
-              <p className="empty">No tee times match this search.</p>
-            ) : (
-              <ul className="list">
-                {teeTimes.map((tee) => (
-                  <li key={tee.id}>
-                    <button
-                      type="button"
-                      className={
-                        tee.id === selectedTeeTimeId ? 'row selected' : 'row'
-                      }
-                      onClick={() => setSelectedTeeTimeId(tee.id)}
-                    >
-                      <span className="row-time">{formatWhen(tee.start_time)}</span>
-                      <span className="row-meta">
-                        {tee.slots_available} open ·{' '}
-                        {formatPrice(tee.price_cents)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <aside className="layout-side">
-            <form className="card" onSubmit={onBook}>
-              <h2>Complete booking</h2>
-              <label className="field">
-                <span>Golfer name</span>
-                <input
-                  value={golferName}
-                  onChange={(e) => setGolferName(e.target.value)}
-                  placeholder="Alex Rivers"
-                />
-              </label>
-              <p className="meta">
-                {selectedCourse?.name ?? 'Course'}
-                {selectedTee
-                  ? ` · ${formatWhen(selectedTee.start_time)} · party of ${players}`
-                  : ` · party of ${players}`}
-              </p>
-              <button type="submit" className="cta">
-                Confirm booking
-              </button>
-            </form>
-
-            <section className="card">
-              <div className="section-head">
-                <h2>Your bookings</h2>
-                <span className="count">{bookings.length}</span>
+        <section className="main">
+          <div className="main-head">
+            <h1>{formatHeadingDate(date, course?.timezone)}</h1>
+            {view === 'tee-times' && (
+              <div className="main-head-actions">
+                <span className="waitlist-copy">Don't see your desired tee time?</span>
+                <button type="button" className="waitlist-button" disabled>
+                  <ListIcon />
+                  <span>Join the Waitlist</span>
+                </button>
               </div>
-              {bookings.length === 0 ? (
-                <p className="empty">No bookings yet.</p>
-              ) : (
-                <ul className="list bookings">
-                  {bookings.map((booking) => (
-                    <li key={booking.id} className="booking">
-                      <div className="booking-main">
-                        <span className="booking-name">
-                          {booking.golfer_name} · {booking.players} player
-                          {booking.players === 1 ? '' : 's'}
-                        </span>
-                        <span className={`status ${booking.status}`}>
-                          {booking.status}
-                        </span>
-                      </div>
-                      <div className="booking-actions">
-                        <span className="when">
-                          {formatWhen(booking.created_at)}
-                        </span>
-                        {booking.status !== 'cancelled' && (
-                          <button
-                            type="button"
-                            className="linkish"
-                            onClick={() => void onCancel(booking.id)}
-                          >
-                            Cancel
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </aside>
-        </div>
+            )}
+          </div>
+
+          {error && <p className="banner bad">{error}</p>}
+          {message && <p className="banner good">{message}</p>}
+
+          {view === 'bookings' ? (
+            !ready ? (
+              <p className="empty">Checking your account…</p>
+            ) : !user ? (
+              <p className="empty">
+                Sign in to see your bookings.
+              </p>
+            ) : (
+              <MyBookings
+                bookings={bookings}
+                loading={loadingBookings}
+                onCancel={onCancelBooking}
+              />
+            )
+          ) : searching ? (
+            <p className="empty">Searching tee times…</p>
+          ) : teeTimes.length === 0 ? (
+            <p className="empty">No tee times match these filters.</p>
+          ) : (
+            <div className="tee-grid">
+              {teeTimes.map((tee) => (
+                <TeeTimeCard key={tee.id} tee={tee} onBook={onBookClick} />
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
-      <footer className="footer">
-        <strong>Noteefy</strong> · Local tee time booking environment
-      </footer>
+      {authOpen && (
+        <AuthModal
+          reason={authPrompt ?? undefined}
+          onClose={() => {
+            setAuthOpen(false)
+            setAuthPrompt(null)
+            setPendingTee(null)
+          }}
+          onSuccess={() => {
+            if (pendingTee) {
+              setBookingTee(pendingTee)
+              setPendingTee(null)
+            }
+          }}
+        />
+      )}
+
+      {bookingTee && user && (
+        <BookingModal
+          tee={bookingTee}
+          golferName={user.name}
+          onClose={() => setBookingTee(null)}
+          onConfirm={onConfirmBooking}
+        />
+      )}
     </div>
   )
 }
 
-function formatWhen(iso: string): string {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+function numberOrUndefined(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
-function formatPrice(cents: number): string {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-  }).format(cents / 100)
+function messageFrom(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.message
+  return err instanceof Error ? err.message : fallback
 }
 
 export default App

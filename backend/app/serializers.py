@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any
 
 from bson import ObjectId
@@ -12,6 +13,9 @@ def serialize_doc(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     for key, value in list(out.items()):
         if isinstance(value, ObjectId):
             out[key] = str(value)
+        elif isinstance(value, datetime) and value.tzinfo is None:
+            # Mongo returns naive datetimes; tag them so clients don't read them as local.
+            out[key] = value.replace(tzinfo=timezone.utc)
     return out
 
 
